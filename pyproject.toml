@@ -12,3 +12,14 @@ dependencies = [
     "psycopg2-binary>=2.9.8",
     "tqdm==4.67.1"
 ]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fnox_secrets*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

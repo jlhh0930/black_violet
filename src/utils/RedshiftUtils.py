@@ -8,72 +8,156 @@ from datetime import date
 from utils import AWSUtils
 
 class RedshiftUtils(object):
-    _instance = None
-    _log = None
+    from __future__ import annotations
 
-    def __new__(cls, config, logger, new_conn=False, statement_timeout=None):
-        if cls._instance is None or cls._instance.dbname != config.dbname or new_conn:
-            cls._instance = object.__new__(RedshiftUtils)
+    import psycopg2
+    from typing import Any, Optional
 
-            RedshiftUtils._instance.rs_secret_string = AWSUtils.get_secret(config.secret_arn, config.region_name, logger)
+    from utils import AWSUtils
 
-            db_config = {
-                'dbname': config.dbname,
-                'host': cls._instance.rs_secret_string['host'],
-                'port': config.rs_secret_string['port'],
-                'user': config.rs_secret_string['user'],
-                'sslmode': 'require'
-            }
+    class RedshiftUtils:
+        """
+        Small helper around a single psycopg2 connection + cursor.
 
-            if statement_timeout:
-                db_config['statement_timeout'] = f'-c statement_timeout {statement_timeout}'
+        Notes:
+        - Uses a keyed singleton by (dbname) so different databases don't collide.
+        - Uses context handling for cursors.
+        """
 
+        _instances: dict[tuple[str], "RedshiftUtils"] = {}
+
+        def __new__(
+                cls,
+                config: Any,
+                logger: Any,
+                *,
+                new_conn: bool = False,
+                statement_timeout: Optional[int] = None,
+        ):
+            key = (config.dbname,)
+
+            if new_conn or key not in cls._instances:
+                inst = super().__new__(cls)
+
+                secret = AWSUtils.get_secret(config.secret_arn, config.region_name, logger)
+
+                db_config = {
+                    "dbname": config.dbname,
+                    "host": secret["host"],
+                    "port": secret["port"],
+                    "user": secret["user"],
+                    "sslmode": "require",
+                }
+
+                # psycopg2 supports setting statement_timeout via options.
+                if statement_timeout is not None:
+                    db_config["options"] = f"-c statement_timeout={int(statement_timeout)}"
+
+                try:
+                    logger.info(
+                        "Connecting to Redshift DB %s at %s:%s",
+                        db_config["dbname"],
+                        db_config["host"],
+                        db_config["port"],
+                    )
+                    connection = psycopg2.connect(**db_config)
+                    cursor = connection.cursor()
+
+                    cursor.execute("SELECT VERSION()")
+                    db_version = cursor.fetchone()
+                    logger.info("Connection established: %s", db_version[0] if db_version else "unknown")
+
+                    inst._init_state(connection=connection, cursor=cursor, dbname=config.dbname, logger=logger,
+                                     secret=secret)
+
+                except Exception:
+                    logger.exception("Failed to connect to Redshift; creating instance aborted.")
+                    # Ensure no cached broken instance is stored
+                    try:
+                        if "connection" in locals() and connection:
+                            connection.close()
+                    except Exception:
+                        pass
+                    raise
+
+                cls._instances[key] = inst
+
+            return cls._instances[key]
+
+        def _init_state(self, *, connection, cursor, dbname: str, logger, secret):
+            self.connection = connection
+            self.cursor = cursor
+            self.dbname = dbname
+            self._log = logger
+            self.rs_secret_string = secret
+
+        def __init__(self, *args, **kwargs):
+            # Intentionally minimal: state is created in __new__
+            pass
+
+        def debug(self, msg: str) -> None:
+            # Optional hook; keeps behavior centralized
+            if hasattr(self._log, "debug"):
+                self._log.debug(msg)
+
+        def execute_query(
+                self,
+                query: str,
+                params: Optional[tuple | dict] = None,
+                *,
+                fetch: str = "none",  # "none" | "one" | "all"
+                commit: bool = False,
+        ) -> Any:
+            """
+            Execute a query safely with optional parameters.
+
+            fetch:
+              - "none": returns None
+              - "one": returns cursor.fetchone()
+              - "all": returns cursor.fetchall()
+            """
             try:
-                log = RedshiftUtils._log = logger
-                log.info(f'Connecting to Redshift DB: {db_config}')
-                connection = RedshiftUtils._instance.connection = psycopg2.connect(**db_config)
-                cursor = RedshiftUtils._instance.cursor = connection.cursor()
-                RedshiftUtils._instance.dbname = db_config['dbname']
-                cursor.execute('SELECT VERSION(')
-                db_version = cursor.fetchone()[0]
+                self.debug("Executing query: %s", )
+                self._log.debug(query) if hasattr(self._log, "debug") else None
+
+                with self.connection.cursor() as cur:
+                    cur.execute(query, params)
+                    if commit:
+                        self.connection.commit()
+
+                    if fetch == "one":
+                        return cur.fetchone()
+                    if fetch == "all":
+                        return cur.fetchall()
+                    return None
 
             except Exception as e:
-                log.info(f'Error: connection not established. \n{e}')
-                RedshiftUtils._instance = None
+                self._log.exception("Error executing query. query=%r error=%s", query, e)
+                # Don't swallow silently: return None if caller expects it
+                self.connection.rollback()
+                return None
 
-            else:
-                logger.info('Connection established: {}'.format(db_version[0]))
-
-        return cls._instance
-
-    def __init__(self):
-        self.rs_secret_string = self._instance.rs_secret_string
-        self.connection = self._instance.connection
-        self.cursor = self._instance.cursor
-        self.dbname = self._instance.dbname
-        self._log = self._log
-
-    def execute_query(self, query) -> object:
-        try:
-            self.debug(query)
-            result = self.cursor
-        except Exception as e:
-            self.log.error('Error executing query: {}, \nError: {}'.format(query, e))
-            return None
-        else:
-            return result
-
-    def get_db_message(self):
-        if self.connection.notices:
-            return self.connection.notices[-1]
-        else:
+        def get_db_message(self) -> Optional[str]:
+            notices = getattr(self.connection, "notices", None)
+            if notices:
+                return notices[-1]
             return None
 
-    def set_isolation_level_autocommit(self):
-        self.connection.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        def set_isolation_level_autocommit(self) -> None:
+            self.connection.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
-    def __del__(self):
-        if hasattr(self, 'connection'):
-            self.connection.close()
-        if hasattr(self, 'cursor'):
-            self.connection.cursor()
+        def close(self) -> None:
+            # Explicit close (recommended over __del__)
+            try:
+                if getattr(self, "cursor", None):
+                    self.cursor.close()
+            finally:
+                if getattr(self, "connection", None):
+                    self.connection.close()
+
+        def __del__(self):
+            # Best-effort cleanup; avoid raising from __del__
+            try:
+                self.close()
+            except Exception:
+                pass

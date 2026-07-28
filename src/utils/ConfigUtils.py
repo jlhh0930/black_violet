@@ -14,6 +14,7 @@ class Config:
         self.job = None
         self.project_root = Path(__file__).parent.parent.parent
         self.publish = None
+        self.pipeline = None
         self.extract = None
         self.start_date = None
         self.end_date = None
@@ -52,6 +53,9 @@ class Config:
     def set_end_date(self, end_date):
         self.__dict__['end_date'] = end_date
 
+    def set_pipeline(self, pipeline):
+        self.__dict__['pipeline'] = pipeline
+
     # For values set in a yaml file
     def set_extracts(self):
         self.__dict__['extracts'] = list(self.__dict__['extract_details']['default']['extracts'].keys())
@@ -62,10 +66,17 @@ class Config:
     def set_states(self):
         self.__dict__['states'] = list(self.__dict__['extract_details']['states'].keys())
 
+    def set_states(self):
+        self.__dict__['clients'] = list(self.__dict__['extract_details']['clients'].keys())
+
     # For dicts set in an env-specific yaml file
     def get_extract_details(self):
         with open('{root}/config/extract_details_{env}.yaml'.format(root=self.project_root, env=self.env), 'r') as file:
             yaml_data = yaml.safe_load(file)
+            self.set_extracts()
+            self.set_sftp_kms()
+            self.set_states()
+            self.set_clients()
             self.__dict__['extract_details'] = yaml_data
 
 config: Config = Config()
