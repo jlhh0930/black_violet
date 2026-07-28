@@ -1,0 +1,43 @@
+# Project names can only contain lowercase characters and underscores.
+name:
+version:
+
+# Which profile dbt uses for this project.
+profile:
+
+# Paths for dbt to recognize.
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+tests:
+  +enabled: "{{ target.name not in ['prod'] }}"
+  +severity: warn
+
+# Default model configs, can be overridden at the model level.
+models:
+  +materialized: table
+
+  # Sets a post-hook to execute for any model in models/extracts/final
+  project_name:
+    extracts:
+      final:
+        +post-hook: "{{ unload_relation_to_s3(this, logical_name=model.name, format='parquet') }}"
+
+    # Sets the schema to dbt_intermediate for all models in models/reporting_tables/intermediate
+    reporting_tables:
+      intermediate:
+        +schema: dbt_intermediate
+
+seeds:
+  project_name:
+    seed_name:
+      +column_types:
+        column_name: data-type

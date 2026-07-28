@@ -1,0 +1,33 @@
+project_name:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: redshift
+      host: "{{ env_var('DBT_ENV_SECRET_HOST') }}"
+      user: "{{ env_var('DBT_ENV_SECRET_USERNAME') }}"
+      password: "{{ env_var('DBT_ENV_SECRET_PASSWORD') }}"
+      dbname: dev_product_dw
+      schema: default-schema
+      port: 5439
+      threads: 10
+      ra3_node: true
+    prep:
+      type: redshift
+      host: "{{ env_var('DBT_ENV_SECRET_HOST') }}"
+      user: "{{ env_var('DBT_ENV_SECRET_USERNAME') }}"
+      password: "{{ env_var('DBT_ENV_SECRET_PASSWORD') }}"
+      dbname: prep_product_dw
+      schema: default-schema
+      port: 5439
+      threads: 10
+      ra3_node: true
+    prod:
+      type: redshift
+      host: "{{ env_var('DBT_ENV_SECRET_HOST') }}"
+      user: "{{ env_var('DBT_ENV_SECRET_USERNAME') }}"
+      password: "{{ env_var('DBT_ENV_SECRET_PASSWORD') }}"
+      dbname: prod_product_dw
+      schema: default-schema
+      port: 5439
+      threads: 10
+      ra3_node: true

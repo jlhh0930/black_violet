@@ -1,0 +1,26 @@
+default:
+  extracts:
+    terminated_customers:
+    transactions:
+
+clients:
+  client_one:
+    sftp:
+      dev: dev_sftp_bucket_client_one
+      prep: prep_sftp_bucket_client_one
+      prod: prod_sftp_bucket_client_one
+  client_two:
+    sftp:
+      dev: dev_sftp_bucket_client_two
+      prep: prep_sftp_bucket_client_two
+      prod: prod_sftp_bucket_client_two
+
+states:
+  al:
+    extracts: reconciled_report
+    kms: kms-key
+    sftp: state_sftp_bucket_al
+  ak:
+    extracts:
+    kms: kms-key
+    sftp: state_sftp_bucket_ak
